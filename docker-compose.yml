@@ -1,0 +1,314 @@
+# ============================================================
+# HogwartsApp - Docker Compose
+# ============================================================
+# Uso:
+#   docker compose up -d          → arrancar todo
+#   docker compose up -d mariadb  → arrancar solo MariaDB
+#   docker compose down -v        → parar y borrar volúmenes
+#
+# Para controlar la precarga de datos edita el fichero .env:
+#   PRELOAD_DATA=true   → crea tablas + inserta datos
+#   PRELOAD_DATA=false  → solo crea tablas (vacías)
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────
+  # MariaDB  →  hogwarts (master) + 4 casas
+  # Puerto host: 3307  |  URL: jdbc:mariadb://localhost:3307/hogwarts
+  # ──────────────────────────────────────────────
+  mariadb:
+    image: mariadb:11
+    container_name: mariadb
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-password123}
+      MYSQL_DATABASE: hogwarts
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: ${MARIADB_PASSWORD:-password123}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./docker/init-sql/mariadb:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────────
+  # H2 Database (modo servidor TCP)
+  # Puerto host: 8082 (Web Console) | 9092 (TCP)
+  # URL: jdbc:h2:tcp://localhost:9092/hogwarts
+  # ──────────────────────────────────────────────
+  h2:
+    image: eclipse-temurin:17-jdk
+    container_name: h2_db
+    ports:
+      - "8082:8082"
+      - "9092:9092"
+    environment:
+      PRELOAD_DATA: ${PRELOAD_DATA:-true}
+    volumes:
+      - h2_data:/opt/h2-data
+      - ./docker/init-sql/h2:/init:ro
+    command: >
+      bash -c "
+        echo '=== Descargando H2 ===' &&
+        wget -q https://repo1.maven.org/maven2/com/h2database/h2/2.2.224/h2-2.2.224.jar -O /h2.jar &&
+
+        if [ ! -f /opt/h2-data/hogwarts.mv.db ]; then
+          echo '=== Inicializando base de datos H2 ===' &&
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
+            java -cp /h2.jar org.h2.tools.RunScript \
+              -url 'jdbc:h2:file:/opt/h2-data/hogwarts' \
+              -user sa -password '' \
+              -script /init/h2-init.sql &&
+            echo '=== H2: schema + datos cargados ==='
+          else
+            java -cp /h2.jar org.h2.tools.RunScript \
+              -url 'jdbc:h2:file:/opt/h2-data/hogwarts' \
+              -user sa -password '' \
+              -sql 'CREATE TABLE IF NOT EXISTS alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100))' &&
+            echo '=== H2: solo schema creado ==='
+          fi
+        else
+          echo '=== H2: base de datos ya existe, omitiendo init ==='
+        fi &&
+
+        echo '=== Arrancando servidor H2 ===' &&
+        java -cp /h2.jar org.h2.tools.Server \
+          -tcp -tcpAllowOthers -tcpPort 9092 \
+          -web -webAllowOthers -webPort 8082 \
+          -baseDir /opt/h2-data -ifNotExists
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ──────────────────────────────────────────────
+  # Apache Derby (modo servidor de red)
+  # Puerto host: 1527
+  # URL: jdbc:derby://localhost:1527/hogwarts
+  # ──────────────────────────────────────────────
+  derby:
+    image: eclipse-temurin:17-jdk
+    container_name: derby_db
+    ports:
+      - "1527:1527"
+    environment:
+      DERBY_HOME: /derby
+      PRELOAD_DATA: ${PRELOAD_DATA:-true}
+    volumes:
+      - derby_data:/derby_data
+      - ./docker/init-sql/derby:/init:ro
+    command: >
+      bash -c "
+        echo '=== Descargando Apache Derby ===' &&
+        wget -q https://archive.apache.org/dist/db/derby/db-derby-10.16.1.1/db-derby-10.16.1.1-bin.tar.gz -O /derby.tar.gz &&
+        tar -xzf /derby.tar.gz -C / &&
+        mv /db-derby-10.16.1.1-bin /derby &&
+
+        if [ ! -d /derby_data/hogwarts ]; then
+          echo '=== Inicializando base de datos Derby ===' &&
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
+            java -Dderby.system.home=/derby_data \
+              -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar \
+              org.apache.derby.tools.ij /init/derby-init.sql &&
+            echo '=== Derby: schema + datos cargados ==='
+          else
+            java -Dderby.system.home=/derby_data \
+              -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar \
+              org.apache.derby.tools.ij <<'SQLEOF'
+CONNECT 'jdbc:derby:/derby_data/hogwarts;create=true';
+CREATE TABLE alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100));
+DISCONNECT;
+EXIT;
+SQLEOF
+            echo '=== Derby: solo schema creado ==='
+          fi
+        else
+          echo '=== Derby: base de datos ya existe, omitiendo init ==='
+        fi &&
+
+        echo '=== Arrancando servidor Derby ===' &&
+        java -Dderby.system.home=/derby_data \
+          -jar /derby/lib/derbyrun.jar server start -h 0.0.0.0 -p 1527
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/1527' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # ──────────────────────────────────────────────
+  # HSQLDB (modo servidor)
+  # Puerto host: 9001 (SQL) | 9002 (Web UI)
+  # URL: jdbc:hsqldb:hsql://localhost:9001/mydb
+  # ──────────────────────────────────────────────
+  hsqldb:
+    image: eclipse-temurin:17-jdk
+    container_name: hsqldb
+    ports:
+      - "9001:9001"
+      - "9002:9002"
+    environment:
+      PRELOAD_DATA: ${PRELOAD_DATA:-true}
+    volumes:
+      - hsqldb_data:/hsqldb_data
+      - ./docker/init-sql/hsqldb:/init:ro
+    command: >
+      bash -c "
+        echo '=== Descargando HSQLDB ===' &&
+        apt-get update -qq && apt-get install -y -qq unzip netcat-openbsd &&
+        wget -q https://sourceforge.net/projects/hsqldb/files/hsqldb/hsqldb_2_7/hsqldb-2.7.2.zip -O /hsqldb.zip &&
+        unzip -oq /hsqldb.zip -d / &&
+
+        if [ ! -f /hsqldb_data/mydb.script ]; then
+          echo '=== Inicializando base de datos HSQLDB ===' &&
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
+            java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.cmdline.SqlTool \
+              --inlineRc url=jdbc:hsqldb:file:/hsqldb_data/mydb,user=SA,password= \
+              /init/hsqldb-init.sql &&
+            echo '=== HSQLDB: schema + datos cargados ==='
+          else
+            java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.cmdline.SqlTool \
+              --inlineRc url=jdbc:hsqldb:file:/hsqldb_data/mydb,user=SA,password= \
+              --sql 'CREATE TABLE IF NOT EXISTS alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100)); COMMIT;' &&
+            echo '=== HSQLDB: solo schema creado ==='
+          fi
+        else
+          echo '=== HSQLDB: base de datos ya existe, omitiendo init ==='
+        fi &&
+
+        echo '=== Arrancando servidor HSQLDB ===' &&
+        java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.server.Server \
+          --database.0 file:/hsqldb_data/mydb \
+          --dbname.0 mydb \
+          --port 9001
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9001 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ──────────────────────────────────────────────
+  # Oracle Database XE 21c
+  # Puerto host: 1521 (SQL) | 5500 (EM Express)
+  # URL: jdbc:oracle:thin:@localhost:1521/XEPDB1
+  # ──────────────────────────────────────────────
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: oracle_db
+    ports:
+      - "1521:1521"
+      - "5500:5500"
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-password123}
+      APP_USER: appuser
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:-password123}
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+      - ./docker/init-sql/oracle:/container-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    shm_size: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 180s
+
+  # ──────────────────────────────────────────────
+  # SQLite - init del fichero local + UI web
+  # El fichero .db lo usa la app directamente vía JDBC
+  # Puerto host: 8080 (Web UI sqlite-web)
+  # ──────────────────────────────────────────────
+  sqlite-init:
+    image: keinos/sqlite3:latest
+    container_name: sqlite_init
+    volumes:
+      - ./src/main/resources/es/potter/db:/db
+      - ./docker/init-sql/sqlite:/init:ro
+    command: >
+      sh -c "
+        if [ ! -f /db/hogwarts.db ] || [ ! -s /db/hogwarts.db ]; then
+          echo '=== Inicializando SQLite ===' &&
+          mkdir -p /db &&
+          if [ \"$${PRELOAD_DATA:-true}\" = 'true' ]; then
+            sqlite3 /db/hogwarts.db < /init/sqlite-init.sql &&
+            echo '=== SQLite: schema + datos cargados ==='
+          else
+            sqlite3 /db/hogwarts.db 'CREATE TABLE IF NOT EXISTS alumnos (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, curso INTEGER, casa TEXT, patronus TEXT)' &&
+            echo '=== SQLite: solo schema creado ==='
+          fi
+        else
+          echo '=== SQLite: base de datos ya existe, omitiendo init ==='
+        fi
+      "
+    environment:
+      PRELOAD_DATA: ${PRELOAD_DATA:-true}
+    restart: "no"
+
+  sqlite-web:
+    image: coleifer/sqlite-web
+    container_name: sqlite_web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./src/main/resources/es/potter/db:/data
+    command: sqlite_web -H 0.0.0.0 -x /data/hogwarts.db
+    depends_on:
+      sqlite-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ──────────────────────────────────────────────
+  # Herramientas de gestión
+  # ──────────────────────────────────────────────
+  adminer:
+    image: adminer
+    container_name: adminer
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  portainer:
+    image: portainer/portainer-ce
+    container_name: portainer
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    restart: unless-stopped
+
+
+volumes:
+  mariadb_data:
+  h2_data:
+  derby_data:
+  hsqldb_data:
+  oracle_data:
+  portainer_data:
