@@ -54,35 +54,20 @@ services:
     volumes:
       - h2_data:/opt/h2-data
       - ./docker/init-sql/h2:/init:ro
-    command: >
+    command: |
       bash -c "
         echo '=== Descargando H2 ===' &&
         wget -q https://repo1.maven.org/maven2/com/h2database/h2/2.2.224/h2-2.2.224.jar -O /h2.jar &&
-
         if [ ! -f /opt/h2-data/hogwarts.mv.db ]; then
           echo '=== Inicializando base de datos H2 ===' &&
-          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
-            java -cp /h2.jar org.h2.tools.RunScript \
-              -url 'jdbc:h2:file:/opt/h2-data/hogwarts' \
-              -user sa -password '' \
-              -script /init/h2-init.sql &&
-            echo '=== H2: schema + datos cargados ==='
-          else
-            java -cp /h2.jar org.h2.tools.RunScript \
-              -url 'jdbc:h2:file:/opt/h2-data/hogwarts' \
-              -user sa -password '' \
-              -sql 'CREATE TABLE IF NOT EXISTS alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100))' &&
-            echo '=== H2: solo schema creado ==='
-          fi
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then SCRIPT=/init/h2-init.sql; else SCRIPT=/init/h2-schema.sql; fi &&
+          java -cp /h2.jar org.h2.tools.RunScript -url 'jdbc:h2:file:/opt/h2-data/hogwarts' -user sa -password '' -script \"$$SCRIPT\" &&
+          echo '=== H2: init completado ==='
         else
           echo '=== H2: base de datos ya existe, omitiendo init ==='
         fi &&
-
         echo '=== Arrancando servidor H2 ===' &&
-        java -cp /h2.jar org.h2.tools.Server \
-          -tcp -tcpAllowOthers -tcpPort 9092 \
-          -web -webAllowOthers -webPort 8082 \
-          -baseDir /opt/h2-data -ifNotExists
+        java -cp /h2.jar org.h2.tools.Server -tcp -tcpAllowOthers -tcpPort 9092 -web -webAllowOthers -webPort 8082 -baseDir /opt/h2-data -ifNotExists
       "
     restart: unless-stopped
     healthcheck:
@@ -108,34 +93,22 @@ services:
     volumes:
       - derby_data:/derby_data
       - ./docker/init-sql/derby:/init:ro
-    command: >
+    command: |
       bash -c "
         echo '=== Descargando Apache Derby ===' &&
         wget -q https://archive.apache.org/dist/db/derby/db-derby-10.16.1.1/db-derby-10.16.1.1-bin.tar.gz -O /derby.tar.gz &&
         tar -xzf /derby.tar.gz -C / &&
         mv /db-derby-10.16.1.1-bin /derby &&
-
         if [ ! -d /derby_data/hogwarts ]; then
           echo '=== Inicializando base de datos Derby ===' &&
-          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
-            java -Dderby.system.home=/derby_data \
-              -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar \
-              org.apache.derby.tools.ij /init/derby-init.sql &&
-            echo '=== Derby: schema + datos cargados ==='
-          else
-            printf "CONNECT 'jdbc:derby:/derby_data/hogwarts;create=true';\nCREATE TABLE alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100));\nDISCONNECT;\nEXIT;\n" > /tmp/derby-schema.sql &&
-            java -Dderby.system.home=/derby_data \
-              -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar \
-              org.apache.derby.tools.ij /tmp/derby-schema.sql &&
-            echo '=== Derby: solo schema creado ==='
-          fi
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then SCRIPT=/init/derby-init.sql; else SCRIPT=/init/derby-schema.sql; fi &&
+          java -Dderby.system.home=/derby_data -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar org.apache.derby.tools.ij \"$$SCRIPT\" &&
+          echo '=== Derby: init completado ==='
         else
           echo '=== Derby: base de datos ya existe, omitiendo init ==='
         fi &&
-
         echo '=== Arrancando servidor Derby ===' &&
-        java -Dderby.system.home=/derby_data \
-          -jar /derby/lib/derbyrun.jar server start -h 0.0.0.0 -p 1527
+        java -Dderby.system.home=/derby_data -jar /derby/lib/derbyrun.jar server start -h 0.0.0.0 -p 1527
       "
     restart: unless-stopped
     healthcheck:
@@ -161,35 +134,23 @@ services:
     volumes:
       - hsqldb_data:/hsqldb_data
       - ./docker/init-sql/hsqldb:/init:ro
-    command: >
+    command: |
       bash -c "
         echo '=== Descargando HSQLDB ===' &&
         apt-get update -qq && apt-get install -y -qq unzip netcat-openbsd &&
         wget -q https://sourceforge.net/projects/hsqldb/files/hsqldb/hsqldb_2_7/hsqldb-2.7.2.zip -O /hsqldb.zip &&
         unzip -oq /hsqldb.zip -d / &&
-
+        HSQL_CP=/hsqldb-2.7.2/hsqldb/lib/hsqldb.jar:/hsqldb-2.7.2/hsqldb/lib/sqltool.jar &&
         if [ ! -f /hsqldb_data/mydb.script ]; then
           echo '=== Inicializando base de datos HSQLDB ===' &&
-          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then
-            java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.cmdline.SqlTool \
-              --inlineRc url=jdbc:hsqldb:file:/hsqldb_data/mydb,user=SA,password= \
-              /init/hsqldb-init.sql &&
-            echo '=== HSQLDB: schema + datos cargados ==='
-          else
-            java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.cmdline.SqlTool \
-              --inlineRc url=jdbc:hsqldb:file:/hsqldb_data/mydb,user=SA,password= \
-              --sql 'CREATE TABLE IF NOT EXISTS alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100)); COMMIT;' &&
-            echo '=== HSQLDB: solo schema creado ==='
-          fi
+          if [ \"$${PRELOAD_DATA}\" = 'true' ]; then SCRIPT=/init/hsqldb-init.sql; else SCRIPT=/init/hsqldb-schema.sql; fi &&
+          java -cp \"$$HSQL_CP\" org.hsqldb.cmdline.SqlTool --inlineRc url=jdbc:hsqldb:file:/hsqldb_data/mydb,user=SA,password= \"$$SCRIPT\" &&
+          echo '=== HSQLDB: init completado ==='
         else
           echo '=== HSQLDB: base de datos ya existe, omitiendo init ==='
         fi &&
-
         echo '=== Arrancando servidor HSQLDB ===' &&
-        java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.server.Server \
-          --database.0 file:/hsqldb_data/mydb \
-          --dbname.0 mydb \
-          --port 9001
+        java -cp /hsqldb-2.7.2/hsqldb/lib/hsqldb.jar org.hsqldb.server.Server --database.0 file:/hsqldb_data/mydb --dbname.0 mydb --port 9001
       "
     restart: unless-stopped
     healthcheck:
@@ -226,57 +187,6 @@ services:
       timeout: 20s
       retries: 10
       start_period: 180s
-
-  # ──────────────────────────────────────────────
-  # SQLite - init del fichero local + UI web
-  # El fichero .db lo usa la app directamente vía JDBC
-  # Puerto host: 8080 (Web UI sqlite-web)
-  # ──────────────────────────────────────────────
-  sqlite-init:
-    image: keinos/sqlite3:latest
-    platform: linux/amd64
-    container_name: sqlite_init
-    volumes:
-      - ./src/main/resources/es/potter/db:/db
-      - ./docker/init-sql/sqlite:/init:ro
-    command: >
-      sh -c "
-        if [ ! -f /db/hogwarts.db ] || [ ! -s /db/hogwarts.db ]; then
-          echo '=== Inicializando SQLite ===' &&
-          mkdir -p /db &&
-          if [ \"$${PRELOAD_DATA:-true}\" = 'true' ]; then
-            sqlite3 /db/hogwarts.db < /init/sqlite-init.sql &&
-            echo '=== SQLite: schema + datos cargados ==='
-          else
-            sqlite3 /db/hogwarts.db 'CREATE TABLE IF NOT EXISTS alumnos (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, curso INTEGER, casa TEXT, patronus TEXT)' &&
-            echo '=== SQLite: solo schema creado ==='
-          fi
-        else
-          echo '=== SQLite: base de datos ya existe, omitiendo init ==='
-        fi
-      "
-    environment:
-      PRELOAD_DATA: ${PRELOAD_DATA:-true}
-    restart: "no"
-
-  sqlite-web:
-    image: coleifer/sqlite-web
-    platform: linux/amd64
-    container_name: sqlite_web
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./src/main/resources/es/potter/db:/data
-    command: sqlite_web -H 0.0.0.0 -x /data/hogwarts.db
-    depends_on:
-      sqlite-init:
-        condition: service_completed_successfully
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # ──────────────────────────────────────────────
   # Herramientas de gestión
