@@ -40,3 +40,6 @@ build/
 ## Properties ##
 **/configuration.properties
 src/main/resources/es/potter/configuration.properties
+
+#Logs
+/logs
