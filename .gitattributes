@@ -1,0 +1,12 @@
+# Normalizar line endings para compatibilidad cross-platform
+* text=auto
+
+# Scripts SQL de init Docker → siempre LF (los contenedores Linux los necesitan así)
+docker/init-sql/**/*.sql text eol=lf
+
+# Scripts de shell → siempre LF
+*.sh text eol=lf
+
+# Ficheros de configuración Docker → LF
+docker-compose.yml text eol=lf
+.env               text eol=lf

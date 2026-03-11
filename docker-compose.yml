@@ -123,14 +123,10 @@ services:
               org.apache.derby.tools.ij /init/derby-init.sql &&
             echo '=== Derby: schema + datos cargados ==='
           else
+            printf "CONNECT 'jdbc:derby:/derby_data/hogwarts;create=true';\nCREATE TABLE alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100));\nDISCONNECT;\nEXIT;\n" > /tmp/derby-schema.sql &&
             java -Dderby.system.home=/derby_data \
               -cp /derby/lib/derby.jar:/derby/lib/derbytools.jar \
-              org.apache.derby.tools.ij <<'SQLEOF'
-CONNECT 'jdbc:derby:/derby_data/hogwarts;create=true';
-CREATE TABLE alumnos (id VARCHAR(12) PRIMARY KEY, nombre VARCHAR(100), apellidos VARCHAR(100), curso INT, casa VARCHAR(50), patronus VARCHAR(100));
-DISCONNECT;
-EXIT;
-SQLEOF
+              org.apache.derby.tools.ij /tmp/derby-schema.sql &&
             echo '=== Derby: solo schema creado ==='
           fi
         else
@@ -210,6 +206,7 @@ SQLEOF
   # ──────────────────────────────────────────────
   oracle:
     image: gvenzl/oracle-xe:21-slim
+    platform: linux/amd64
     container_name: oracle_db
     ports:
       - "1521:1521"
@@ -237,6 +234,7 @@ SQLEOF
   # ──────────────────────────────────────────────
   sqlite-init:
     image: keinos/sqlite3:latest
+    platform: linux/amd64
     container_name: sqlite_init
     volumes:
       - ./src/main/resources/es/potter/db:/db
@@ -263,6 +261,7 @@ SQLEOF
 
   sqlite-web:
     image: coleifer/sqlite-web
+    platform: linux/amd64
     container_name: sqlite_web
     ports:
       - "8080:8080"
