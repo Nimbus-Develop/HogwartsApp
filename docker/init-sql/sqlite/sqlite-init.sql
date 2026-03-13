@@ -27,7 +27,10 @@ INSERT OR IGNORE INTO alumnos VALUES ('SLY-5e6f7a8b', 'Pansy',    'Parkinson',  
 INSERT OR IGNORE INTO alumnos VALUES ('SLY-9c0d1e2f', 'Blaise',   'Zabini',           5, 'Slytherin',  'Serpiente');
 INSERT OR IGNORE INTO alumnos VALUES ('SLY-3a4b5c6d', 'Theodore', 'Nott',             5, 'Slytherin',  'Búho');
 INSERT OR IGNORE INTO alumnos VALUES ('SLY-7e8f9a0b', 'Daphne',   'Greengrass',       5, 'Slytherin',  'Leopardo');
+INSERT OR IGNORE INTO alumnos VALUES ('RAV-2b3c4d5e', 'Luna',     'Lovegood',         4, 'Ravenclaw',  'Liebre');
 INSERT OR IGNORE INTO alumnos VALUES ('RAV-6f7a8b9c', 'Cho',      'Chang',            6, 'Ravenclaw',  'Cisne');
+INSERT OR IGNORE INTO alumnos VALUES ('RAV-0d1e2f3a', 'Padma',    'Patil',            5, 'Ravenclaw',  'Gato persa');
+INSERT OR IGNORE INTO alumnos VALUES ('RAV-4b5c6d7e', 'Terry',    'Boot',             5, 'Ravenclaw',  'Águila');
 INSERT OR IGNORE INTO alumnos VALUES ('RAV-8f9a0b1c', 'Michael',  'Corner',           5, 'Ravenclaw',  'Halcón');
 INSERT OR IGNORE INTO alumnos VALUES ('HUF-3c4d5e6f', 'Cedric',   'Diggory',          7, 'Hufflepuff', 'Labrador');
 INSERT OR IGNORE INTO alumnos VALUES ('HUF-7a8b9c0d', 'Hannah',   'Abbott',           5, 'Hufflepuff', 'Conejo');
