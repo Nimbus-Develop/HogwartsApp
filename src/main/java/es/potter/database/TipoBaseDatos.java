@@ -133,7 +133,27 @@ public enum TipoBaseDatos {
     }
 
     /**
+     * Devuelve el nombre amigable para mostrar en la interfaz de usuario.
+     * Las casas muestran su nombre (Gryffindor, Slytherin…),
+     * MariaDB aparece como "Hogwarts" (base de datos principal) y
+     * SQLite como "Local".
+     *
+     * @return nombre legible para el usuario
+     *
+     * @author HogwartsApp
+     */
+    public String obtenerNombreUI() {
+        if (esCasa()) return nombreCasa;
+        return switch (this) {
+            case MARIADB -> "Hogwarts";
+            case SQLITE -> "Local";
+            default -> name();
+        };
+    }
+
+    /**
      * Devuelve una representación en cadena del tipo de base de datos.
+     * Incluye el prefijo técnico — útil para logs, no para la UI.
      *
      * @return representación en {@link String} del tipo de base de datos
      *
