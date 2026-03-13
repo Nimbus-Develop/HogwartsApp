@@ -25,6 +25,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.util.Callback;
@@ -34,11 +35,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.awt.*;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+
+import es.potter.servicio.ExportadorAlumnos;
 
 /**
  * Controlador principal de la aplicación HogwartsApp.
@@ -890,6 +894,161 @@ public class ControladorPrincipal {
      * @author Marco
      */
     @FXML void actionBusqueda() {}
+
+    // ==================== EXPORTACIÓN ====================
+
+    /**
+     * Exporta únicamente los alumnos marcados con checkbox en la tabla.
+     * Si no hay ninguno seleccionado, muestra un aviso informativo.
+     *
+     * @author Marco, Wara
+     */
+    @FXML
+    void actionExportarSeleccionados() {
+        List<Alumno> seleccionados = obtenerAlumnosSeleccionados();
+
+        if (seleccionados.isEmpty()) {
+            mandarAlertas(Alert.AlertType.INFORMATION,
+                    bundle.getString("sinAlumnosParaExportar"),
+                    bundle.getString("headerSinAlumnosParaExportar"),
+                    bundle.getString("contenidoSinAlumnosParaExportar"));
+            return;
+        }
+
+        logger.info("Exportando {} alumno(s) seleccionado(s)", seleccionados.size());
+        exportarAlumnos(seleccionados, "alumnos_seleccionados");
+    }
+
+    /**
+     * Exporta todos los alumnos visibles en la tabla (casa o vista actual).
+     * Si la lista está vacía, muestra un aviso informativo.
+     *
+     * @author Marco, Wara
+     */
+    @FXML
+    void actionExportarCasaActual() {
+        List<Alumno> alumnosVista = new ArrayList<>(listaAlumnos);
+
+        if (alumnosVista.isEmpty()) {
+            mandarAlertas(Alert.AlertType.INFORMATION,
+                    bundle.getString("sinAlumnosParaExportar"),
+                    bundle.getString("headerSinAlumnosParaExportar"),
+                    bundle.getString("contenidoSinAlumnosParaExportar"));
+            return;
+        }
+
+        // Nombre sugerido para el archivo basado en la vista activa
+        String nombreCasa = baseDatosActual.esCasa()
+                ? baseDatosActual.obtenerNombreCasa().toLowerCase()
+                : "hogwarts";
+
+        logger.info("Exportando {} alumno(s) de la vista '{}'", alumnosVista.size(), nombreCasa);
+        exportarAlumnos(alumnosVista, "alumnos_" + nombreCasa);
+    }
+
+    /**
+     * Exporta todos los alumnos cargados desde la base de datos MASTER (MariaDB).
+     * Muestra el caldero mientras carga los datos, luego abre el diálogo de guardado.
+     *
+     * @author Marco, Wara
+     */
+    @FXML
+    void actionExportarTodos() {
+        // Mostrar animación de carga mientras se consulta el MASTER
+        loadingImageView.setVisible(true);
+        loadingAnimation.play();
+
+        ServicioHogwarts.cargarAlumnos()
+                .thenAccept(alumnos -> Platform.runLater(() -> {
+                    // Detener animación antes de mostrar el FileChooser
+                    loadingAnimation.stop();
+                    loadingImageView.setVisible(false);
+
+                    if (alumnos.isEmpty()) {
+                        mandarAlertas(Alert.AlertType.INFORMATION,
+                                bundle.getString("sinAlumnosParaExportar"),
+                                bundle.getString("headerSinAlumnosParaExportar"),
+                                bundle.getString("contenidoSinAlumnosParaExportar"));
+                        return;
+                    }
+
+                    logger.info("Exportando todos los alumnos ({}) desde MASTER", alumnos.size());
+                    exportarAlumnos(new ArrayList<>(alumnos), "alumnos_hogwarts");
+                }))
+                .exceptionally(ex -> {
+                    logger.error("Error cargando alumnos desde MASTER para exportación: {}", ex.getMessage());
+                    Platform.runLater(() -> {
+                        loadingAnimation.stop();
+                        loadingImageView.setVisible(false);
+                        mandarAlertas(Alert.AlertType.ERROR,
+                                bundle.getString("errorExportacion"),
+                                bundle.getString("headerErrorExportacion"),
+                                TraductorExcepciones.traducir(ex, bundle));
+                    });
+                    return null;
+                });
+    }
+
+    /**
+     * Muestra un diálogo para elegir dónde guardar el CSV y ejecuta la escritura en segundo plano.
+     * Reutilizado por los tres modos de exportación (seleccionados, casa, todos).
+     * Muestra el caldero durante la escritura y alerta con el resultado.
+     *
+     * @param alumnos          Lista de alumnos a exportar
+     * @param nombreSugerido   Nombre de archivo sugerido (sin extensión)
+     *
+     * @author Marco, Wara
+     */
+    private void exportarAlumnos(List<Alumno> alumnos, String nombreSugerido) {
+        // Configurar el diálogo de guardar archivo
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.setTitle(bundle.getString("tituloExportarCsv"));
+        fileChooser.setInitialFileName(nombreSugerido + ".csv");
+        fileChooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("Archivo CSV (*.csv)", "*.csv")
+        );
+
+        File archivo = fileChooser.showSaveDialog(tablaAlumnos.getScene().getWindow());
+
+        // El usuario canceló el diálogo
+        if (archivo == null) {
+            logger.info("Exportación cancelada por el usuario");
+            return;
+        }
+
+        // Mostrar caldero durante la escritura del archivo
+        loadingImageView.setVisible(true);
+        loadingAnimation.play();
+
+        // Escribir el archivo en un hilo secundario para no bloquear la UI
+        CompletableFuture.runAsync(() -> {
+            try {
+                ExportadorAlumnos.exportarCsv(alumnos, archivo);
+            } catch (IOException e) {
+                // Envolver la excepción checked para que CompletableFuture la propague
+                throw new RuntimeException(e);
+            }
+        }).thenRun(() -> Platform.runLater(() -> {
+            loadingAnimation.stop();
+            loadingImageView.setVisible(false);
+            mandarAlertas(Alert.AlertType.INFORMATION,
+                    bundle.getString("exportacionExitosa"),
+                    bundle.getString("alumnosExportados"),
+                    alumnos.size() + " " + bundle.getString("contenidoExportacionExitosa"));
+
+        })).exceptionally(ex -> {
+            logger.error("Error al escribir el archivo CSV '{}': {}", archivo.getName(), ex.getMessage());
+            Platform.runLater(() -> {
+                loadingAnimation.stop();
+                loadingImageView.setVisible(false);
+                mandarAlertas(Alert.AlertType.ERROR,
+                        bundle.getString("errorExportacion"),
+                        bundle.getString("headerErrorExportacion"),
+                        bundle.getString("contenidoErrorExportacion"));
+            });
+            return null;
+        });
+    }
 
     /**
      * Cambia entre el modo claro y oscuro de la aplicación.
