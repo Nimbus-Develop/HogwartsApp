@@ -4,6 +4,7 @@ package es.potter.control;
 import es.potter.database.TipoBaseDatos;
 import es.potter.model.Alumno;
 import es.potter.servicio.ServicioHogwarts;
+import es.potter.util.TraductorExcepciones;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
@@ -488,7 +489,7 @@ public class ControladorPrincipal {
                         loadingAnimation.stop();
                         loadingImageView.setVisible(false);
 
-                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("error"), bundle.getString("errorEliminarAlumno"), bundle.getString("contenidoNoSePuedeEliminar") + " " + ex.getMessage());
+                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("error"), bundle.getString("errorEliminarAlumno"), TraductorExcepciones.traducir(ex, bundle));
                     });
                     return null;
                 });
@@ -584,7 +585,7 @@ public class ControladorPrincipal {
                         loadingAnimation.stop();
                         loadingImageView.setVisible(false);
 
-                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("error"), bundle.getString("errorSincronizacion"), bundle.getString("contenidoErrorSincronizar") + " " + ex.getMessage());
+                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("error"), bundle.getString("errorSincronizacion"), TraductorExcepciones.traducir(ex, bundle));
                     });
                     return null;
                 });
@@ -803,7 +804,7 @@ public class ControladorPrincipal {
                         loadingAnimation.stop();
                         loadingImageView.setVisible(false);
 
-                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("errorCargarAlumnos"), bundle.getString("noPuedeCargarAlumnos") + " " + tipoBase, ex.getMessage());
+                        mandarAlertas(Alert.AlertType.ERROR, bundle.getString("errorCargarAlumnos"), bundle.getString("noPuedeCargarAlumnos") + " " + tipoBase.obtenerNombreUI(), TraductorExcepciones.traducir(ex, bundle));
 
                         // Si es la carga inicial, cerrar la aplicación
                         if (esCargaInicial) {
